@@ -1,0 +1,33 @@
+// JS
+var
+  X3DJSONLD: TX3DJSONLD;
+  JSONObj: TJSONObject;
+  DOMElement: TDOMElement;
+begin
+  X3DJSONLD := TX3DJSONLD.Create;
+  try
+    // Load and convert JSON to DOM
+    DOMElement := X3DJSONLD.LoadJsonIntoDom(Document.Implementation, JSONObj, 'path/to/file.json');
+  finally
+    X3DJSONLD.Free;
+  end;
+end;
+
+
+// Java
+var
+  loader: TX3DJSONLD;
+  jsobj: TJSONObject;
+  document: TDOMDocument;
+  xmlOutput: String;
+begin
+  loader := TX3DJSONLD.Create;
+  try
+    jsobj := loader.ReadJsonFile('input.json');
+    document := loader.LoadJsonIntoDocument(jsobj, loader.GetX3DVersion(jsobj), False);
+    xmlOutput := loader.SerializeDOM(loader.GetX3DVersion(jsobj), document);
+    WriteLn(xmlOutput);
+  finally
+    loader.Free;
+  end;
+end;
