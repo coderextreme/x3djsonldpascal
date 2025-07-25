@@ -199,3 +199,7 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+ 
+Some code is developed using Castle Game Engine
+
+Some code is translated from Java and JavaScript to Pascal using Claude.ai: X3DSONLD.java and X3DJSONLD.js are originals written by hand by John Carlson
