@@ -7,9 +7,11 @@ unit GameViewX3DJSONLD;
 
 interface
 
-uses Classes,
+uses Classes, CastleWindow, CastleDownload,
   CastleVectors, CastleComponentSerialize,
-  CastleUIControls, CastleControls, CastleKeysMouse;
+  CastleUIControls, CastleControls, CastleKeysMouse,
+  X3DNodes, SysUtils, CastleScene, X3DLoad, CastleLog,
+  CastleUriUtils, CastleStringUtils;
 
 type
   { Main view, where most of the application logic takes place. }
@@ -23,21 +25,57 @@ type
     procedure Start; override;
     procedure Update(const SecondsPassed: Single; var HandleInput: Boolean); override;
     function Press(const Event: TInputPressRelease): Boolean; override;
+    procedure SetXmlOutput(xmlOutput: String;loadScene: TCastleScene);
   end;
 
 var
   ViewX3DJSONLD: TViewX3DJSONLD;
+  Scene: TCastleScene;
 
 implementation
 
-uses SysUtils;
-
 { TViewX3DJSONLD ----------------------------------------------------------------- }
+    
+procedure DropJsonFiles(Sender: TCastleContainer; const FileNames: array of string);
+var
+  I: LongInt;
+  Count: LongInt;
+  Url: string;
+begin
+  WritelnLog('DEBUG', '---------------------------------');
+  Count := Length(FileNames);
+  WritelnLog('DEBUG', 'Files dropped: %d', [Count]);
+  for I := 0 to Count - 1 do
+  begin
+    WritelnLog('DEBUG', '- File %d: %s', [I, FileNames[I]]);
+    Url := FilenameToUriSafe(FileNames[I]);
+    WritelnLog('url is '+ SReadableForm(Url));
+    Scene.Load(Url);
+  end;
+  WritelnLog('DEBUG', '---------------------------------');
+end;
 
 constructor TViewX3DJSONLD.Create(AOwner: TComponent);
 begin
-  inherited;
+  inherited Create(AOwner);
+  Application.MainWindow.OnDropFiles := @DropJsonFiles;
   DesignUrl := 'castle-data:/gameviewx3djsonld.castle-user-interface';
+end;
+
+procedure TViewX3DJSONLD.SetXmlOutput(xmlOutput: String; loadScene: TCastleScene);
+var
+  RootNode: TX3DRootNode;
+  XmlStream: TStringStream;
+begin
+  Scene := loadScene;
+  XmlStream := TStringStream.Create(xmlOutput, TEncoding.UTF8); // Create a StringStream from your XML string
+  try
+    RootNode := LoadNode(XmlStream, '', 'model/x3d+xml'); //
+    { loadScene.Load(RootNode, true); }
+  finally
+    XmlStream.Free;
+  end;
+
 end;
 
 procedure TViewX3DJSONLD.Start;

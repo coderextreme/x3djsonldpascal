@@ -11,8 +11,9 @@ interface
 
 implementation
 
-uses SysUtils,
-  CastleWindow, CastleLog, CastleUIControls
+uses SysUtils, CastlePasJSON,
+  CastleWindow, CastleLog, CastleUIControls, X3DJSONLDJava2Pascal, DOM,
+  X3DNodes, X3DLoad, CastleScene, CastleViewport, CastleUriUtils, CastleStringUtils
   {$region 'Castle Initialization Uses'}
   // The content here may be automatically updated by CGE editor.
   , GameViewX3DJSONLD
@@ -20,6 +21,13 @@ uses SysUtils,
 
 var
   Window: TCastleWindow;
+  loader: TX3DJSONLD;
+  jsonitem: TPasJSONItem;  // top level item is a JSON object, below
+  jsonobj: TPasJSONItemObject;
+  document: TDOMDocument;
+  xmlOutput: String;
+  Scene: TCastleScene;
+
 
 { One-time initialization of resources. }
 procedure ApplicationInitialize;
@@ -32,9 +40,33 @@ begin
   // The content here may be automatically updated by CGE editor.
   ViewX3DJSONLD := TViewX3DJSONLD.Create(Application);
   {$endregion 'Castle View Creation'}
+  Scene := TCastleScene.Create(Application);
 
   Window.Container.View := ViewX3DJSONLD;
+  Window.Controls.InsertFront(ViewX3DJSONLD);
+  // Java
+  loader := TX3DJSONLD.Create;
+  try
+    jsonitem := loader.ReadJsonFile('C:\Users\jcarl\X3DJSONLD\src\main\data\ArchHalf.json');
+    if jsonitem is TPasJSONItemObject then
+      begin
+        jsonobj := TPasJSONItemObject(jsonitem);
+        document := loader.LoadJsonIntoDocument(jsonobj, loader.GetX3DVersion(jsonobj), False);
+        xmlOutput := loader.SerializeDOM(loader.GetX3DVersion(jsonobj), document);
+        WriteLnLog('DEBUG', xmlOutput);
+  	ViewX3DJSONLD.SetXmlOutput(xmlOutput, Scene);
+      end
+    else
+      begin
+        WriteLnLog('ERROR', 'Not a JSON Object; an X3D JSON Document is a JSON Object.');
+      end;
+  finally
+    loader.Free;
+  end;
 end;
+
+
+
 
 initialization
   { This initialization section configures:

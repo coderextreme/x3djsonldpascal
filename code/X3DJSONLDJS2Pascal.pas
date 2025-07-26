@@ -312,7 +312,7 @@ var
   CDATASection: TDOMCDATASection;
 begin
   ProcessedStr := Trim(AStr);
-  ProcessedStr := StringReplace(ProcessedStr, '\"', '\"', [rfReplaceAll]);
+  ProcessedStr := StringReplace(ProcessedStr, '&quot;', '"', [rfReplaceAll]);
   ProcessedStr := StringReplace(ProcessedStr, '&lt;', '<', [rfReplaceAll]);
   ProcessedStr := StringReplace(ProcessedStr, '&gt;', '>', [rfReplaceAll]);
   ProcessedStr := StringReplace(ProcessedStr, '&amp;', '&', [rfReplaceAll]);

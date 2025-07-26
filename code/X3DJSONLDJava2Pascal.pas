@@ -34,13 +34,13 @@ interface
 
 uses
   Classes, SysUtils, DOM, XMLRead, XMLWrite, fpjson, jsonparser, 
-  Generics.Collections, StrUtils;
+  Generics.Collections, CastlePasJSON, StrUtils;
 
 type
   TX3DJSONLD = class
   private
     x3dTidy: Boolean;
-    protos: TDictionary<String, TJSONObject>;
+    //protos: TDictionary<TString, TPasJSONItemObject>;
     builtins: TStringList;
     
     function StripQuotes(const value: String): String;
@@ -55,32 +55,32 @@ type
       const value: String; document: TDOMDocument); overload;
     
     function CreateElement(document: TDOMDocument; const key: String; 
-      const containerField: String; obj: TJSONObject): TDOMElement;
+      const containerField: String; obj: TPasJSONItemObject): TDOMElement;
     
     procedure CDATACreateFunction(document: TDOMDocument; element: TDOMElement; 
-      const value: TJSONArray);
+      const value: TPasJSONItemArray);
     
     procedure ConvertProperty(document: TDOMDocument; const key: String; 
-      obj: TJSONObject; element: TDOMElement; const containerField: String);
+      obj: TPasJSONItemObject; element: TDOMElement; const containerField: String);
     
-    procedure ConvertJsonObject(document: TDOMDocument; obj: TJSONObject; 
+    procedure ConvertJsonObject(document: TDOMDocument; obj: TPasJSONItemObject; 
       const parentkey: String; element: TDOMElement; const containerField: String);
     
-    procedure ConvertJsonArray(document: TDOMDocument; arr: TJSONArray; 
+    procedure ConvertJsonArray(document: TDOMDocument; arr: TPasJSONItemArray; 
       const parentkey: String; element: TDOMElement; const containerField: String);
     
-    function ConvertJsonValue(document: TDOMDocument; value: TJSONData; 
+    function ConvertJsonValue(document: TDOMDocument; value: TPasJSONItem; 
       const parentkey: String; element: TDOMElement; const containerField: String): TDOMElement;
     
   public
     constructor Create;
     destructor Destroy; override;
     
-    function LoadJsonIntoDocument(jsobj: TJSONObject; const version: String; 
+    function LoadJsonIntoDocument(jsobj: TPasJSONItemObject; const version: String;
       x3dTidyFlag: Boolean): TDOMDocument;
     
-    function ReadJsonFile(const filename: String): TJSONObject;
-    function GetX3DVersion(jsobj: TJSONObject): String;
+    function ReadJsonFile(const filename: String): TPasJSONItem;
+    function GetX3DVersion(jsobj: TPasJSONItemObject): String;
     function SerializeDOM(const x3dVersion: String; document: TDOMDocument): String;
   end;
 
@@ -90,7 +90,7 @@ constructor TX3DJSONLD.Create;
 begin
   inherited Create;
   x3dTidy := False;
-  protos := TDictionary<String, TJSONObject>.Create;
+  //protos := TDictionary<String, TPasJSONItemObject>.Create;
   builtins := TStringList.Create;
   builtins.Sorted := True;
   builtins.Duplicates := dupIgnore;
@@ -99,7 +99,7 @@ end;
 
 destructor TX3DJSONLD.Destroy;
 begin
-  protos.Free;
+  //protos.Free;
   builtins.Free;
   inherited Destroy;
 end;
@@ -590,60 +590,60 @@ begin
 end;
 
 function TX3DJSONLD.CreateElement(document: TDOMDocument; const key: String; 
-  const containerField: String; obj: TJSONObject): TDOMElement;
+  const containerField: String; obj: TPasJSONItemObject): TDOMElement;
 var
-  new_object: TJSONObject;
+  new_object: TPasJSONItemObject;  // used with protos
   child: TDOMElement;
-  new_key: String;
+  new_key: String;  // used with protos
   name, DEF: String;
 begin
   if (key = 'ProtoDeclare') or (key = 'ExternProtoDeclare') then
   begin
-    if Assigned(obj) and Assigned(obj.Find('@name')) then
+    if Assigned(obj) and Assigned(obj.Properties['@name']) then
     begin
-      name := StripQuotes(obj.Get('@name').AsString);
+      name := StripQuotes(TPasJSON.getString(obj.Properties['@name'], ''));
       if name <> '' then
       begin
         if builtins.IndexOf(name) >= 0 then
           WriteLn(StdErr, 'Attempt to override builtin name ''', name, ''' rejected')
-        else if protos.ContainsKey(name) then
-          WriteLn(StdErr, 'Attempt to override PROTO name ''', name, ''' rejected')
+        //else if protos.ContainsKey(name) then
+        //  WriteLn(StdErr, 'Attempt to override PROTO name ''', name, ''' rejected')
         else
         begin
           WriteLn(StdErr, 'PROTO name ', name);
-          protos.Add(name, obj);
+          //protos.Add(name, obj);
         end;
       end;
     end;
     
-    if Assigned(obj) and Assigned(obj.Find('@DEF')) then
+    if Assigned(obj) and Assigned(obj.Properties['@DEF']) then
     begin
-      DEF := StripQuotes(obj.Get('@DEF').AsString);
+      DEF := StripQuotes(TPasJSON.getString(obj.Properties['@DEF']));
       if DEF <> '' then
       begin
         if builtins.IndexOf(DEF) >= 0 then
           WriteLn(StdErr, 'Attempt to override builtin name ''', DEF, ''' rejected')
-        else if protos.ContainsKey(DEF) then
-          WriteLn(StdErr, 'Attempt to override PROTO DEF ''', DEF, ''' rejected')
+        //else if protos.ContainsKey(DEF) then
+        //  WriteLn(StdErr, 'Attempt to override PROTO DEF ''', DEF, ''' rejected')
         else
         begin
           WriteLn(StdErr, 'PROTO DEF ', DEF);
-          protos.Add(DEF, obj);
+          //protos.Add(DEF, obj);
         end;
       end;
     end;
   end;
   
-  if protos.TryGetValue(key, new_object) then
-  begin
-    new_key := 'ProtoInstance';
-    child := document.CreateElement(new_key);
-    child.SetAttribute('name', key);
-  end
-  else
+  //if protos.TryGetValue(key, new_object) then
+  //begin
+  //  new_key := 'ProtoInstance';
+  //  child := document.CreateElement(new_key);
+  //  child.SetAttribute('name', key);
+  //end
+  //else
     child := document.CreateElement(key);
   
-  if Assigned(containerField) and (containerField <> '') and (
+  if (Length(containerField) > 0) and (containerField <> '') and (
     ((containerField = 'geometry') and (key = 'IndexedFaceSet')) or
     ((containerField = 'geometry') and (key = 'Text')) or
     ((containerField = 'geometry') and (key = 'IndexedTriangleSet')) or
@@ -673,7 +673,7 @@ begin
 end;
 
 procedure TX3DJSONLD.CDATACreateFunction(document: TDOMDocument; element: TDOMElement; 
-  const value: TJSONArray);
+  const value: TPasJSONItemArray);
 var
   sb: String;
   i: Integer;
@@ -685,10 +685,9 @@ begin
   begin
     if i > 0 then
       sb := sb + #10;
-    str := value.Items[i].AsString;
+    str := TPasJSON.getString(value.Items[i]);
     str := StringReplace(str, '^"', '', []);
     str := StringReplace(str, '\t', #9, [rfReplaceAll]);
-    str := StringReplace(str, '", '', []);
     str := StringReplace(str, '&lt;', '<', [rfReplaceAll]);
     str := StringReplace(str, '&gt;', '>', [rfReplaceAll]);
     str := StringReplace(str, '&amp;', '&', [rfReplaceAll]);
@@ -701,49 +700,49 @@ begin
 end;
 
 procedure TX3DJSONLD.ConvertProperty(document: TDOMDocument; const key: String; 
-  obj: TJSONObject; element: TDOMElement; const containerField: String);
+  obj: TPasJSONItemObject; element: TDOMElement; const containerField: String);
 var
-  jsonValue: TJSONData;
-  arr: TJSONArray;
+  jsonValue: TPasJSONItem;
+  arr: TPasJSONItemArray;
   i: Integer;
   comment: TDOMComment;
 begin
   if not Assigned(obj) then Exit;
   
-  jsonValue := obj.Find(key);
+  jsonValue := obj.Properties[key];
   if not Assigned(jsonValue) then Exit;
   
-  if jsonValue is TJSONObject then
+  if jsonValue is TPasJSONItemObject then
   begin
     if key = '@sourceCode' then
-      CDATACreateFunction(document, element, TJSONArray(jsonValue))
+      CDATACreateFunction(document, element, TPasJSONItemArray(jsonValue))
     else if (Length(key) > 0) and (key[1] = '@') then
       ConvertJsonValue(document, jsonValue, key, element, containerField)
     else if (Length(key) > 0) and (key[1] = '-') then
       ConvertJsonValue(document, jsonValue, key, element, Copy(key, 2, Length(key)-1))
     else if key = '#comment' then
     begin
-      if jsonValue is TJSONArray then
+      if jsonValue is TPasJSONItemArray then
       begin
-        arr := TJSONArray(jsonValue);
+        arr := TPasJSONItemArray(jsonValue);
         for i := 0 to arr.Count - 1 do
         begin
-          comment := document.CreateComment(CommentStringToXML(arr.Items[i].AsString));
+          comment := document.CreateComment(CommentStringToXML(TPasJSON.getString(arr.Items[i])));
           element.AppendChild(comment);
         end;
       end
       else
       begin
-        comment := document.CreateComment(CommentStringToXML(jsonValue.AsString));
+        comment := document.CreateComment(CommentStringToXML(TPasJSON.getString(jsonValue)));
         element.AppendChild(comment);
       end;
     end
     else if key = '#sourceCode' then
-      CDATACreateFunction(document, element, TJSONArray(jsonValue))
+      CDATACreateFunction(document, element, TPasJSONItemArray(jsonValue))
     else if (key = 'connect') or (key = 'fieldValue') or (key = 'field') or 
             (key = 'meta') or (key = 'component') or (key = 'unit') then
     begin
-      arr := TJSONArray(jsonValue);
+      arr := TPasJSONItemArray(jsonValue);
       ConvertJsonArray(document, arr, key, element, containerField);
     end
     else
@@ -785,15 +784,16 @@ begin
   // Additional XML fixes could be added here if needed
 end;
 
-procedure TX3DJSONLD.ConvertJsonObject(document: TDOMDocument; obj: TJSONObject; 
+procedure TX3DJSONLD.ConvertJsonObject(document: TDOMDocument; obj: TPasJSONItemObject; 
   const parentkey: String; element: TDOMElement; const containerField: String);
 var
   kii: Boolean;
   child: TDOMElement;
   i: Integer;
   key: String;
-  jsonValue: TJSONData;
+  jsonValue: TPasJSONItem;
   tempContainerField: String;
+  comment: TDOMComment;
 begin
   if not Assigned(obj) then Exit;
   
@@ -824,53 +824,53 @@ begin
   
   for i := 0 to obj.Count - 1 do
   begin
-    key := obj.Names[i];
-    jsonValue := obj.Items[i];
+    key := obj.Keys[i];
+    jsonValue := obj.Values[i];
     
-    if jsonValue is TJSONObject then
+    if jsonValue is TPasJSONItemObject then
     begin
       if (key = '@type') and (parentkey = 'NavigationInfo') then
         ElementSetAttribute(child, Copy(key, 2, Length(key)-1), 
-          NavigationInfoTypeToXML(jsonValue.AsString), document)
+          NavigationInfoTypeToXML(TPasJSON.getString(jsonValue)), document)
       else if (Length(key) > 0) and (key[1] = '@') then
-        ConvertProperty(document, key, TJSONObject(jsonValue), child, containerField)
+        ConvertProperty(document, key, TPasJSONItemObject(jsonValue), child, containerField)
       else if (Length(key) > 0) and (key[1] = '-') then
-        ConvertJsonObject(document, TJSONObject(jsonValue), key, child, Copy(key, 2, Length(key)-1))
+        ConvertJsonObject(document, TPasJSONItemObject(jsonValue), key, child, Copy(key, 2, Length(key)-1))
       else
-        ConvertJsonObject(document, TJSONObject(jsonValue), key, child, containerField);
+        ConvertJsonObject(document, TPasJSONItemObject(jsonValue), key, child, containerField);
     end
-    else if jsonValue is TJSONArray then
-      ConvertJsonArray(document, TJSONArray(jsonValue), key, child, containerField)
-    else if jsonValue is TJSONNumber then
-      ElementSetAttribute(child, Copy(key, 2, Length(key)-1), jsonValue.AsString, document)
-    else if jsonValue is TJSONString then
+    else if jsonValue is TPasJSONItemArray then
+      ConvertJsonArray(document, TPasJSONItemArray(jsonValue), key, child, containerField)
+    else if jsonValue is TPasJSONItemNumber then
+      ElementSetAttribute(child, Copy(key, 2, Length(key)-1), TPasJSON.GetString(jsonValue), document)
+    else if jsonValue is TPasJSONItemString then
     begin
       if key = '#comment' then
       begin
-        comment := document.CreateComment(CommentStringToXML(jsonValue.AsString));
+        comment := document.CreateComment(CommentStringToXML(TPasJSON.GetString(jsonValue)));
         child.AppendChild(comment);
       end
       else if (key = '@type') and (parentkey = 'NavigationInfo') then
         ElementSetAttribute(child, Copy(key, 2, Length(key)-1), 
-          NavigationInfoTypeToXML(jsonValue.AsString), document)
+          NavigationInfoTypeToXML(TPasJSON.GetString(jsonValue)), document)
       else
-        ElementSetAttribute(child, Copy(key, 2, Length(key)-1), jsonValue.AsString, document);
+        ElementSetAttribute(child, Copy(key, 2, Length(key)-1), TPasJSON.GetString(jsonValue), document);
     end
-    else if (jsonValue is TJSONBoolean) or (jsonValue is TJSONNull) then
-      ElementSetAttribute(child, Copy(key, 2, Length(key)-1), jsonValue.AsString, document);
+    else if (jsonValue is TPasJSONItemBoolean) or (jsonValue is TPasJSONItemNull) then
+      ElementSetAttribute(child, Copy(key, 2, Length(key)-1), TPasJSON.GetString(jsonValue), document);
   end;
   
   if not kii and not ((Length(parentkey) > 0) and (parentkey[1] = '-')) then
     element.AppendChild(child);
 end;
 
-procedure TX3DJSONLD.ConvertJsonArray(document: TDOMDocument; arr: TJSONArray; 
+procedure TX3DJSONLD.ConvertJsonArray(document: TDOMDocument; arr: TPasJSONItemArray; 
   const parentkey: String; element: TDOMElement; const containerField: String);
 var
   arrayOfStrings: Boolean;
   localArray: TStringList;
   arraysize, i: Integer;
-  jsonValue: TJSONData;
+  jsonValue: TPasJSONItem;
   kii: Boolean;
 begin
   if not Assigned(arr) then Exit;
@@ -881,22 +881,31 @@ begin
     arraysize := arr.Count;
     
     if parentkey = 'meta' then
-      arraysize := arr.Count - (if x3dTidy then 2 else 3);
+    begin
+      if (x3dTidy) then
+      begin
+        arraysize := arr.Count - 2;
+      end
+      else
+      begin
+        arraysize := arr.Count - 3;
+      end
+    end;
     
     for i := 0 to arraysize - 1 do
     begin
       jsonValue := arr.Items[i];
       
-      if jsonValue is TJSONNumber then
-        localArray.Add(jsonValue.AsString)
-      else if jsonValue is TJSONString then
+      if jsonValue is TPasJSONItemNumber then
+        localArray.Add(TPasJSON.GetString(jsonValue))
+      else if jsonValue is TPasJSONItemString then
       begin
-        localArray.Add(jsonValue.AsString);
+        localArray.Add(TPasJSON.GetString(jsonValue));
         arrayOfStrings := True;
       end
-      else if (jsonValue is TJSONBoolean) or (jsonValue is TJSONNull) then
-        localArray.Add(jsonValue.AsString)
-      else if jsonValue is TJSONObject then
+      else if (jsonValue is TPasJSONItemBoolean) or (jsonValue is TPasJSONItemNull) then
+        localArray.Add(TPasJSON.GetString(jsonValue))
+      else if jsonValue is TPasJSONItemObject then
       begin
         try
           StrToInt(IntToStr(i));
@@ -910,7 +919,7 @@ begin
         else
           ConvertJsonValue(document, jsonValue, IntToStr(i), element, Copy(parentkey, 2, Length(parentkey)-1));
       end
-      else if jsonValue is TJSONArray then
+      else if jsonValue is TPasJSONItemArray then
         ConvertJsonValue(document, jsonValue, IntToStr(i), element, containerField);
     end;
     
@@ -926,26 +935,26 @@ begin
   end;
 end;
 
-function TX3DJSONLD.ConvertJsonValue(document: TDOMDocument; value: TJSONData; 
+function TX3DJSONLD.ConvertJsonValue(document: TDOMDocument; value: TPasJSONItem; 
   const parentkey: String; element: TDOMElement; const containerField: String): TDOMElement;
 var
   comment: TDOMComment;
 begin
-  if value is TJSONArray then
-    ConvertJsonArray(document, TJSONArray(value), parentkey, element, containerField)
+  if value is TPasJSONItemArray then
+    ConvertJsonArray(document, TPasJSONItemArray(value), parentkey, element, containerField)
   else
-    ConvertJsonObject(document, TJSONObject(value), parentkey, element, containerField);
+    ConvertJsonObject(document, TPasJSONItemObject(value), parentkey, element, containerField);
   
   Result := element;
 end;
 
-function TX3DJSONLD.LoadJsonIntoDocument(jsobj: TJSONObject; const version: String; 
+function TX3DJSONLD.LoadJsonIntoDocument(jsobj: TPasJSONItemObject; const version: String;
   x3dTidyFlag: Boolean): TDOMDocument;
 var
   unenversion: String;
   element: TDOMElement;
   doctype: TDOMDocumentType;
-  x3dObj: TJSONObject;
+  x3dObj: TPasJSONItemObject;
 begin
   x3dTidy := x3dTidyFlag;
   unenversion := StringReplace(StringReplace(version, '%22', '', [rfReplaceAll]), '"', '', [rfReplaceAll]);
@@ -955,7 +964,7 @@ begin
   element := CreateElement(Result, 'X3D', '', nil);
   ElementSetAttribute(element, 'xmlns:xsd', 'http://www.w3.org/2001/XMLSchema-instance', Result);
   
-  x3dObj := TJSONObject(jsobj.Find('X3D'));
+  x3dObj := TPasJSONItemObject(jsobj.Properties['X3D']);
   if Assigned(x3dObj) then
     ConvertJsonObject(Result, x3dObj, '-', element, '');
   
@@ -965,38 +974,33 @@ begin
   // This would need to be handled differently in a real implementation
 end;
 
-function TX3DJSONLD.ReadJsonFile(const filename: String): TJSONObject;
+function TX3DJSONLD.ReadJsonFile(const filename: String): TPasJSONItem;
 var
   fileStream: TFileStream;
   parser: TJSONParser;
 begin
   fileStream := TFileStream.Create(filename, fmOpenRead);
   try
-    parser := TJSONParser.Create(fileStream);
-    try
-      Result := TJSONObject(parser.Parse);
-    finally
-      parser.Free;
-    end;
+      Result := TPasJSON.Parse(fileStream);
   finally
     fileStream.Free;
   end;
 end;
 
-function TX3DJSONLD.GetX3DVersion(jsobj: TJSONObject): String;
+function TX3DJSONLD.GetX3DVersion(jsobj: TPasJSONItemObject): String;
 var
-  x3dObj: TJSONObject;
-  versionData: TJSONData;
+  x3dObj: TPasJSONItemObject;
+  versionData: TPasJSONItem;
 begin
   Result := '4.0';
   if Assigned(jsobj) then
   begin
-    x3dObj := TJSONObject(jsobj.Find('X3D'));
+    x3dObj := TPasJSONItemObject(jsobj.Properties['X3D']);
     if Assigned(x3dObj) then
     begin
-      versionData := x3dObj.Find('@version');
+      versionData := x3dObj.Properties['@version'];
       if Assigned(versionData) then
-        Result := StringReplace(versionData.AsString, '"', '', [rfReplaceAll]);
+        Result := StringReplace(TPasJSON.getString(versionData), '"', '', [rfReplaceAll]);
     end;
   end;
 end;
