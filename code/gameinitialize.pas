@@ -11,17 +11,21 @@ interface
 
 implementation
 
-uses SysUtils, CastlePasJSON,
-  CastleWindow, CastleLog, CastleUIControls, X3DJSONLDJava2Pascal, DOM,
-  X3DNodes, X3DLoad, CastleScene, CastleViewport, CastleUriUtils, CastleStringUtils
+uses
+  SysUtils, CastlePasJSON,
+  // List the engine units first:
+  CastleWindow, CastleLog, CastleUIControls, X3DFields, DOM,
+  X3DNodes, X3DLoad, CastleScene, CastleViewport, CastleUriUtils, CastleStringUtils,
+  // THEN list your unit that depends on them:
+  X3DJSONLDX3DNode,
   {$region 'Castle Initialization Uses'}
   // The content here may be automatically updated by CGE editor.
-  , GameViewX3DJSONLD
+  GameViewX3DJSONLD
   {$endregion 'Castle Initialization Uses'};
 
 var
   Window: TCastleWindow;
-  loader: TX3DJSONLD;
+  loader: TX3DJSONLDX3DNode;
   jsonitem: TPasJSONItem;  // top level item is a JSON object, below
   jsonobj: TPasJSONItemObject;
   document: TDOMDocument;
@@ -45,13 +49,13 @@ begin
   Window.Container.View := ViewX3DJSONLD;
   Window.Controls.InsertFront(ViewX3DJSONLD);
   // Java
-  loader := TX3DJSONLD.Create;
+  loader := TX3DJSONLDX3DNode.Create;
   try
     jsonitem := loader.ReadJsonFile('C:\Users\jcarl\X3DJSONLD\src\main\data\ArchHalf.json');
     if jsonitem is TPasJSONItemObject then
       begin
         jsonobj := TPasJSONItemObject(jsonitem);
-        document := loader.LoadJsonIntoDocument(jsonobj, loader.GetX3DVersion(jsonobj), False);
+        document := loader.LoadJsonIntoDocument(jsonobj, loader./gerFieX3DVersion(jsonobj), False);
         xmlOutput := loader.SerializeDOM(loader.GetX3DVersion(jsonobj), document);
         WriteLnLog('DEBUG', xmlOutput);
   	ViewX3DJSONLD.SetXmlOutput(xmlOutput, Scene);

@@ -8,8 +8,8 @@ See https://castle-engine.io/project_manifest for documentation of this file.
 <project name="x3djsonldpascal"
   standalone_source="x3djsonldpascal_standalone.dpr"
   game_units="GameInitialize"
-  qualified_name="com.mycompany.x3djsonldpascal"
-  caption="X3D JSON Loader in Pascale"
+  qualified_name="net.coderextreme.x3djsonldpascal"
+  caption="X3D JSON Loader in Pascal"
 >
   <compiler_options>
     <search_paths>
