@@ -35,56 +35,39 @@ interface
 uses
   Classes,
   CastlePasJSON,
+  { fpjson, }
   CastleImages,
   X3DNodes,
   X3DLoad;
 
 type
-  TX3DJSONLDX3DNode = class(TX3DFileItem)
+  TX3DJSONLDX3DNode = class(TObject)
+  { TX3DJSONLDX3DNode = class(TX3DFileItem) }
   private
     x3dTidy: Boolean;
     
-    function StripQuotes(const value: String): String;
-    function CommentStringToXML(const str: String): String;
     function NavigationInfoTypeToXML(const str: String): String;
-    
-    procedure ElementSetAttribute(element: TX3DNode; const key: String; 
-      const values: TStringList; rootNode: TX3DRootNode); overload;
-    procedure ElementSetAttribute(element: TX3DNode; const key: String; 
-      const value: String; rootNode: TX3DRootNode); overload;
+    procedure ElementSetAttribute(element: TX3DNode; const key: String; const values: TStringList); overload;
+    procedure ElementSetAttribute(element: TX3DNode; const key: String; const values: TPasJSONItemArray); overload;
+    procedure ElementSetAttribute(element: TX3DNode; const key: String; const value: String); overload;
     procedure SetField(element: TX3DNode; const key: String; const value: TPasJSONItem) overload;
     procedure SetField(element: TX3DNode; const key: String; const value: String) overload;
-    
-    function CreateElement(rootNode: TX3DRootNode; const key: String; 
-      const containerField: String; obj: TPasJSONItemObject): TX3DNode;
-    
-    procedure CDATACreateFunction(rootNode: TX3DRootNode; element: TX3DNode; 
-      const value: TPasJSONItemArray);
-    
-    procedure ConvertProperty(rootNode: TX3DRootNode; const key: String; 
-      obj: TPasJSONItemObject; element: TX3DNode; const containerField: String);
-    
-    procedure ConvertJsonObject(rootNode: TX3DRootNode; obj: TPasJSONItemObject; 
-      const parentkey: String; element: TX3DNode; const containerField: String);
-    
-    procedure ConvertJsonArray(rootNode: TX3DRootNode; arr: TPasJSONItemArray; 
-      const parentkey: String; element: TX3DNode; const containerField: String);
-    
-    function ConvertJsonValue(rootNode: TX3DRootNode; value: TPasJSONItem; 
-      const parentkey: String; element: TX3DNode; const containerField: String): TX3DNode;
-
-    procedure AddChild(parentNode: TX3DNode; childNode: TAbstractChildNode); 
+    function CreateElement(const key: String): TX3DNode;
+    procedure CDATACreateFunction(rootNode: TX3DRootNode; element: TX3DNode; const value: TPasJSONItemArray);
+    procedure ConvertProperty(rootNode: TX3DRootNode; const key: String; obj: TPasJSONItemObject; element: TX3DNode);
+    procedure ConvertJsonObject(rootNode: TX3DRootNode; obj: TPasJSONItemObject; const parentkey: String; element: TX3DNode);
+    procedure ConvertJsonArray(rootNode: TX3DRootNode; arr: TPasJSONItemArray; const parentkey: String; element: TX3DNode);
+    function ConvertJsonValue(rootNode: TX3DRootNode; value: TPasJSONItem; const parentkey: String; element: TX3DNode): TX3DNode;
+    procedure AddChild(parentNode: TX3DNode; childNode: TX3DNode) overload; 
     function JSONArrayToImage(const valueArray: TPasJSONItemArray): TCastleImage;
+    procedure CreateComment(element: TX3DNode; const arr: String);
     
   public
+    class var localJSON: TX3DJSONLDX3DNode;
     constructor Create;
     destructor Destroy; override;
-    
+    procedure RegisterJSON;
     function LoadJsonIntoDocument(jsobj: TPasJSONItemObject; x3dTidyFlag: Boolean): TX3DRootNode;
-    
-    function ReadJsonFile(const filename: String): TPasJSONItem;
-    function GetX3DVersion: TX3dVersion;
-    function SerializeDOM(rootNode: TX3DRootNode): String;
   end;
 
 implementation
@@ -94,12 +77,22 @@ uses
   SysUtils,
   Generics.Collections,
   StrUtils, XMLWrite,
+  CastleVectors,
+  CastleScene,
+  CastleComponentSerialize,
   CastleLog;
+
+type
+  TCrackerGrayscaleImage = class(TGrayscaleImage);
+  TCrackerGrayscaleAlphaImage = class(TGrayscaleAlphaImage);
+  TCrackerRGBImage = class(TRGBImage);
+  TCrackerRGBAlphaImage = class(TRGBAlphaImage);
 
 constructor TX3DJSONLDX3DNode.Create;
 begin
   inherited Create;
   x3dTidy := False;
+  localJSON := Self;
 end;
 
 destructor TX3DJSONLDX3DNode.Destroy;
@@ -107,21 +100,11 @@ begin
   inherited Destroy;
 end;
 
-function TX3DJSONLDX3DNode.StripQuotes(const value: String): String;
-begin
-  if (Length(value) >= 2) and (value[1] = '"') and (value[Length(value)] = '"') then
-    Result := Copy(value, 2, Length(value) - 2)
-  else
-    Result := value;
-end;
-
-procedure TX3DJSONLDX3DNode.ElementSetAttribute(element: TX3DNode; const key: String; 
-  const values: TStringList; rootNode: TX3DRootNode);
+procedure TX3DJSONLDX3DNode.ElementSetAttribute(element: TX3DNode; const key: String; const values: TStringList) overload;
 var
   sb: String;
   i: Integer;
   fieldValue: TX3DNode;
-  field: TX3DField;
 begin
   sb := '';
   for i := 0 to values.Count - 1 do
@@ -131,282 +114,37 @@ begin
     sb := sb + values[i];
   end;
   
-  if (element is TProtoInstance) and (key <> 'DEF') and (key <> 'name') then
+  if (element is TX3DPrototypeNode) and (key <> 'DEF') and (key <> 'name') then
   begin
-    fieldValue := NodesManager.X3DTypeToClass('fieldValue', TX3DVersion).Create;
-    SetField(element, 'name', key);
-    SetField(element, 'value', sb);
-    TProtoInstance(element).SetFieldValue(fieldValue);
+    fieldValue := NodesManager.X3DTypeToClass('fieldValue', X3DVersion).Create;
+    SetField(fieldValue, 'name', key);
+    SetField(fieldValue, 'value', sb);
+    AddChild(element, TAbstractChildNode(fieldValue));
   end
   else
+  begin
     SetField(element,key, sb);
+  end;
 end;
 
-procedure TX3DJSONLDX3DNode.SetField(element: TX3DNode; const key: String; const value: String) overload;
-begin
-    SetField(element, key, TPasJSONItemString(value));
-end;
-
-procedure TX3DJSONLDX3DNode.SetField(element: TX3DNode; const key: String; const value: TPasJSONItem) overload;
+procedure TX3DJSONLDX3DNode.ElementSetAttribute(element: TX3DNode; const key: String; const values: TPasJSONItemArray); overload;
 var
-  field: TX3DField;
-  valueArray: TPasJSONItemArray;
-  NewMatrix3Value: TMatrix3;
+  i: Integer;
+  sl: TSTringList;
 begin
-    field := element.Field(key);
-    {
-    if field is TMFBool then
-	    TMFBool(field).Value := value;
-    else
-    if field is TMFColor then
-	    TMFColor(field).Value := value;
-    else
-    if field is TMFColorRGBA then
-	    TMFColorRGBA(field).Value := value;
-    else
-    if field is TMFDouble then
-	    TMFDouble(field).Value := value;
-    else
-    if field is TMFFloat then
-	    TMFFloat(field).Value := value;
-    else
-    if field is TMFImage then
-	    TMFImage(field).Value := value;
-    else
-    if field is TMFInt32 then
-	    TMFInt32(field).Value := value;
-    else
-    if field is TMFMatrix3d then
-	    TMFMatrix3d(field).Value := value;
-    else
-    if field is TMFMatrix3f then
-	    TMFMatrix3f(field).Value := value;
-    else
-    if field is TMFMatrix4d then
-	    TMFMatrix4d(field).Value := value;
-    else
-    if field is TMFMatrix4f then
-	    TMFMatrix4f(field).Value := value;
-    else
-    if field is TMFNode then
-	    TMFNode(field).Value := value;
-    else
-    if field is TMFRotation then
-	    TMFRotation(field).Value := value;
-    else
-    if field is TMFString then
-	    TMFString(field).Value := value;
-    else
-    if field is TMFTime then
-	    TMFTime(field).Value := value;
-    else
-    if field is TMFVec2d then
-	    TMFVec2d(field).Value := value;
-    else
-    if field is TMFVec2f then
-	    TMFVec2f(field).Value := value;
-    else
-    if field is TMFVec3d then
-	    TMFVec3d(field).Value := value;
-    else
-    if field is TMFVec3f then
-	    TMFVec3f(field).Value := value;
-    else
-    if field is TMFVec4d then
-	    TMFVec4d(field).Value := value;
-    else
-    if field is TMFVec4f then
-	    TMFVec4f(field).Value := value;
-    else }
-    if field is TSFBool then
-    begin
-	    TSFBool(field).Value := TPasJSON.getBoolean(value);
-    end
-    else if (field is TSFColor) and (value is TPasJSONItemArray) then
-    begin
-      valueArray := TPasJSONItemArray(value);
-	    TSFColor(field).Value := Vector3(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]),
-        TPasJSON.getNumber(valueArray.Items[2]));
-    end
-    else if field is TSFColorRGBA then
-    begin
-      valueArray := TPasJSONItemArray(value);
-	    TSFColorRGBA(field).Value := Vector4(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]),
-        TPasJSON.getNumber(valueArray.Items[2]),
-        TPasJSON.getNumber(valueArray.Items[3]));
-    end
-    else if field is TSFDouble then
-    begin
-	    TSFDouble(field).Value := TPasJSON.getNumber(value);
-    end
-    else if field is TSFFloat then
-    begin
-	    TSFFloat(field).Value := TPasJSON.getNumber(value);
-    end
-    else if (field is TSFImage) and (key = 'image') then
-    begin
-      valueArray := TPasJSONItemArray(value);
-	    TSFImage(field).Value := JSONArrayToImage(valueArray);
-    end
-    else if field is TSFInt32 then
-    begin
-	    TSFInt32(field).Value := TPasJSON.getInt64(value);
-    end
-    else if field is TSFMatrix3d then
-    begin
-      valueArray := TPasJSONItemArray(value);
-      NewMatrix3Value := TMatrix3.Identity;
-      NewMatrix3Value.Data[0][0] := TPasJSON.getNumber(valueArray.Items[0]);
-      NewMatrix3Value.Data[1][0] := TPasJSON.getNumber(valueArray.Items[1]);
-      NewMatrix3Value.Data[2][0] := TPasJSON.getNumber(valueArray.Items[2]);
-      NewMatrix3Value.Data[0][1] := TPasJSON.getNumber(valueArray.Items[3]);
-      NewMatrix3Value.Data[1][1] := TPasJSON.getNumber(valueArray.Items[4]);
-      NewMatrix3Value.Data[2][1] := TPasJSON.getNumber(valueArray.Items[5]);
-      NewMatrix3Value.Data[0][2] := TPasJSON.getNumber(valueArray.Items[6]);
-      NewMatrix3Value.Data[1][2] := TPasJSON.getNumber(valueArray.Items[7]);
-      NewMatrix3Value.Data[2][2] := TPasJSON.getNumber(valueArray.Items[8]);
-      TSFMatrix3f(field).Value := NewMatrix3Value;
-    end
-    else if field is TSFMatrix3f then
-    begin
-      valueArray := TPasJSONItemArray(value);
-      NewMatrix3Value := TMatrix3.Identity;
-      NewMatrix3Value.Data[0][0] := TPasJSON.getNumber(valueArray.Items[0]);
-      NewMatrix3Value.Data[1][0] := TPasJSON.getNumber(valueArray.Items[1]);
-      NewMatrix3Value.Data[2][0] := TPasJSON.getNumber(valueArray.Items[2]);
-      NewMatrix3Value.Data[0][1] := TPasJSON.getNumber(valueArray.Items[3]);
-      NewMatrix3Value.Data[1][1] := TPasJSON.getNumber(valueArray.Items[4]);
-      NewMatrix3Value.Data[2][1] := TPasJSON.getNumber(valueArray.Items[5]);
-      NewMatrix3Value.Data[0][2] := TPasJSON.getNumber(valueArray.Items[6]);
-      NewMatrix3Value.Data[1][2] := TPasJSON.getNumber(valueArray.Items[7]);
-      NewMatrix3Value.Data[2][2] := TPasJSON.getNumber(valueArray.Items[8]);
-      TSFMatrix3f(field).Value := NewMatrix3Value;
-    end
-    else if field is TSFMatrix4d then
-    begin
-	    TSFMatrix4d(field).Value :=  TMatrix4d.Create(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]),
-        TPasJSON.getNumber(valueArray.Items[2]),
-        TPasJSON.getNumber(valueArray.Items[3]),
-        TPasJSON.getNumber(valueArray.Items[4]),
-        TPasJSON.getNumber(valueArray.Items[5]),
-        TPasJSON.getNumber(valueArray.Items[6]),
-        TPasJSON.getNumber(valueArray.Items[7]),
-        TPasJSON.getNumber(valueArray.Items[8]),
-        TPasJSON.getNumber(valueArray.Items[9]),
-        TPasJSON.getNumber(valueArray.Items[10]),
-        TPasJSON.getNumber(valueArray.Items[11]),
-        TPasJSON.getNumber(valueArray.Items[12]),
-        TPasJSON.getNumber(valueArray.Items[13]),
-        TPasJSON.getNumber(valueArray.Items[14]),
-        TPasJSON.getNumber(valueArray.Items[15]));
-    end
-    else if field is TSFMatrix4f then
-    begin
-	    TSFMatrix4f(field).Value :=  TMatrix4f.Create(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]),
-        TPasJSON.getNumber(valueArray.Items[2]),
-        TPasJSON.getNumber(valueArray.Items[3]),
-        TPasJSON.getNumber(valueArray.Items[4]),
-        TPasJSON.getNumber(valueArray.Items[5]),
-        TPasJSON.getNumber(valueArray.Items[6]),
-        TPasJSON.getNumber(valueArray.Items[7]),
-        TPasJSON.getNumber(valueArray.Items[8]),
-        TPasJSON.getNumber(valueArray.Items[9]),
-        TPasJSON.getNumber(valueArray.Items[10]),
-        TPasJSON.getNumber(valueArray.Items[11]),
-        TPasJSON.getNumber(valueArray.Items[12]),
-        TPasJSON.getNumber(valueArray.Items[13]),
-        TPasJSON.getNumber(valueArray.Items[14]),
-        TPasJSON.getNumber(valueArray.Items[15]));
-    { else if field is TSFNode then
-      begin
-	    TSFNode(field).Value := value;
-      end }
-    end
-    else if field is TSFRotation then
-    begin
-	    TSFRotation(field).Value := Vector4(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]),
-        TPasJSON.getNumber(valueArray.Items[2]),
-        TPasJSON.getNumber(valueArray.Items[3]));
-    end
-    else if field is TSFString then
-    begin
-	    TSFString(field).Value := TPasJSON.getString(value);
-    end
-    else if field is TSFTime then
-    begin
-	    TSFTime(field).Value := TPasJSON.getNumber(value);
-    end
-    else if field is TSFVec2d then
-    begin
-      valueArray := TPasJSONItemArray(value);
-	    TSFVec2d(field).Value := Vector2Double(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]));
-    end
-    else if field is TSFVec2f then
-    begin
-      valueArray := TPasJSONItemArray(value);
-	    TSFVec2f(field).Value := Vector2(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]));
-    end
-    else if field is TSFVec3d then
-    begin
-      valueArray := TPasJSONItemArray(value);
-	    TSFVec3d(field).Value :=Vector3Double(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]),
-        TPasJSON.getNumber(valueArray.Items[2]));
-    end
-    else if field is TSFVec3f then
-    begin
-      valueArray := TPasJSONItemArray(value);
-	    TSFVec3f(field).Value := Vector3(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]),
-        TPasJSON.getNumber(valueArray.Items[2]));
-    end
-    else if field is TSFVec4d then
-    begin
-      valueArray := TPasJSONItemArray(value);
-	    TSFVec4d(field).Value := Vector4Double(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]),
-        TPasJSON.getNumber(valueArray.Items[2]),
-        TPasJSON.getNumber(valueArray.Items[3]));
-    end
-    else if field is TSFVec4f then
-    begin
-      valueArray := TPasJSONItemArray(value);
-	    TSFVec4f(field).Value := Vector4(
-        TPasJSON.getNumber(valueArray.Items[0]),
-        TPasJSON.getNumber(valueArray.Items[1]),
-        TPasJSON.getNumber(valueArray.Items[2]),
-        TPasJSON.getNumber(valueArray.Items[3]));
-    end;
+  sl := TStringList.Create;
+  CastleLog.WriteLnLog('Array count '+IntToStr(values.Count));
+  for i := 0 to values.Count - 2 do
+  begin
+    CastleLog.WriteLnLog('Array Index '+IntToStr(i));
+    CastleLog.WriteLnLog('Array item '+TPasJSON.getString(values.Items[i]));
+    sl.Add(TPasJSON.getString(values.Items[i]));
+  end;
+  ElementSetAttribute(element, key, sl);
 end;
-// Add these cracker classes right after your "implementation" keyword
-// and before your JSONArrayToImage function.
-// Their only purpose is to expose the protected members of the image classes.
-// The cracker classes are still needed.
-type
-  TCrackerGrayscaleImage = class(TGrayscaleImage);
-  TCrackerGrayscaleAlphaImage = class(TGrayscaleAlphaImage);
-  TCrackerRGBImage = class(TRGBImage);
-  TCrackerRGBAlphaImage = class(TRGBAlphaImage);
 
 // The final, working function.
-function JSONArrayToImage(const AValueArray: TPasJSONItemArray): TCastleImage;
+function TX3DJSONLDX3DNode.JSONArrayToImage(const valueArray: TPasJSONItemArray): TCastleImage;
 var
   Width, Height, Components, PixelCount, I: Integer;
   PixelValue: Cardinal;
@@ -416,14 +154,14 @@ begin
   Result := nil;
 
   // Metadata Parsing
-  if AValueArray.Count < 3 then Exit;
-  Width := TPasJSON.GetInt64(AValueArray.Items[0]);
-  Height := TPasJSON.GetInt64(AValueArray.Items[1]);
-  Components := TPasJSON.GetInt64(AValueArray.Items[2]);
+  if valueArray.Count < 3 then Exit;
+  Width := TPasJSON.GetInt64(valueArray.Items[0]);
+  Height := TPasJSON.GetInt64(valueArray.Items[1]);
+  Components := TPasJSON.GetInt64(valueArray.Items[2]);
   PixelCount := Width * Height;
 
   // Validation
-  if AValueArray.Count <> (3 + PixelCount) then Exit;
+  if valueArray.Count <> (3 + PixelCount) then Exit;
 
   // Create the correct class instance
   case Components of
@@ -447,7 +185,7 @@ begin
     DestIndex := 0;
     for I := 0 to PixelCount - 1 do
     begin
-      PixelValue := Cardinal(TPasJSON.GetInt64(AValueArray.Items[3 + I]));
+      PixelValue := Cardinal(TPasJSON.GetInt64(valueArray.Items[3 + I]));
 
       case Components of
         4: // RGBA
@@ -479,73 +217,315 @@ begin
     on E: Exception do
     begin
       FreeAndNil(Result);
-      CastleLog.WritelnLog('Exception during image creation: ' + E.Message);
+      CastleLog.WriteLnLog('Exception during image creation: ' + E.Message);
     end;
   end;
 end;
 
-procedure TX3DJSONLDX3DNode.ElementSetAttribute(element: TX3DNode; const key: String; 
-  const value: String; rootNode: TX3DRootNode);
+procedure TX3DJSONLDX3DNode.SetField(element: TX3DNode; const key: String; const value: String) overload;
+begin
+    SetField(element, key, TPasJSONItemString(value));
+end;
+
+procedure TX3DJSONLDX3DNode.SetField(element: TX3DNode; const key: String; const value: TPasJSONItem) overload;
+var
+  I: Integer;
+  field: TX3DField;
+  valueArray: TPasJSONItemArray;
+  NewMatrix3dValue: TMatrix3Double;
+  NewMatrix3fValue: TMatrix3;
+  NewMatrix4dValue: TMatrix4Double;
+  NewMatrix4fValue: TMatrix4;
+  NewMFVec3dValue: array of TVector3;
+  NewMFVec3fValue: array of TVector3;
+  JSONData: Integer;
+  JSONString: String;
+begin
+	{ CastleLog.WriteLnLog('DEBUG Setting '+element.ClassName+'.'+key+' to '+WriteJSON(value));
+    CastleLog.WriteLnLog('DEBUG Setting '+element.ClassName+'.'+key+' to '+value.toJSON(true)); }
+    if (element <> nil) and (key <> '') then begin
+      field := element.Field(key);
+    end else begin
+      CastleLog.WriteLnLog('ERROR Can not find field ', key);
+      Exit;
+    end;
+    {
+    if field is TMFBool then
+	    TMFBool(field).Value := value;
+    else
+    if field is TMFColor then
+	    TMFColor(field).Value := value;
+    else
+    if field is TMFColorRGBA then
+	    TMFColorRGBA(field).Value := value;
+    else
+    if field is TMFDouble then
+	    TMFDouble(field).Value := value;
+    else
+    if field is TMFFloat then
+	    TMFFloat(field).Value := value;
+    else
+    if field is TMFImage then
+	    TMFImage(field).Value := value;
+    else }
+    if field is TMFInt32 then begin
+      valueArray := TPasJSONItemArray(value);
+      for I := 0 to valueArray.Count - 1 do begin
+	CastleLog.WriteLnLog('MFInt32 '+IntToStr(I)+' '+TPasJSON.getString(valueArray.Items[I]));
+      	TMFInt32(field).Items[I] := TPasJSON.getInt64(valueArray.Items[I]);
+      end;
+    end else if field is TMFVec3f then begin
+      {
+    end else if field is TMFMatrix3d then
+	    TMFMatrix3d(field).Value := value;
+    else
+    if field is TMFMatrix3f then
+	    TMFMatrix3f(field).Value := value;
+    else
+    if field is TMFMatrix4d then
+	    TMFMatrix4d(field).Value := value;
+    else
+    if field is TMFMatrix4f then
+	    TMFMatrix4f(field).Value := value;
+    else
+    if field is TMFNode then
+	    TMFNode(field).Value := value;
+    else
+    if field is TMFRotation then
+	    TMFRotation(field).Value := value;
+    else
+    if field is TMFString then
+	    TMFString(field).Value := value;
+    else
+    if field is TMFTime then
+	    TMFTime(field).Value := value;
+    else
+    if field is TMFVec2d then
+	    TMFVec2d(field).Value := value;
+    else
+    if field is TMFVec2f then
+	    TMFVec2f(field).Value := value;
+    else }
+    end else if field is TMFVec3d then begin
+      valueArray := TPasJSONItemArray(value);
+      for I := 0 to valueArray.Count div 3 do begin
+      	TMFVec3d(field).Items[I] := Vector3Double(
+	  TPasJSON.getNumber(valueArray.Items[I*3]),
+	  TPasJSON.getNumber(valueArray.Items[I*3+1]),
+	  TPasJSON.getNumber(valueArray.Items[I*3+2]));
+      end;
+    end else if field is TMFVec3f then begin
+      valueArray := TPasJSONItemArray(value);
+      for I := 0 to valueArray.Count div 3 do begin
+      	TMFVec3f(field).Items[I] := Vector3(
+	  TPasJSON.getNumber(valueArray.Items[I*3]),
+	  TPasJSON.getNumber(valueArray.Items[I*3+1]),
+	  TPasJSON.getNumber(valueArray.Items[I*3+2]));
+      end;
+	{ else if field is TMFVec4d then begin
+	    TMFVec4d(field).Value := value;
+    end else if field is TMFVec4f then begin
+	    TMFVec4f(field).Value := value; }
+    end else if field is TSFBool then begin
+       TSFBool(field).Value := TPasJSON.getBoolean(value);
+    end else if (field is TSFColor) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      TSFColor(field).Value := Vector3(
+        TPasJSON.getNumber(valueArray.Items[0]),
+        TPasJSON.getNumber(valueArray.Items[1]),
+        TPasJSON.getNumber(valueArray.Items[2]));
+    end else if (field is TSFColorRGBA) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      TSFColorRGBA(field).Value := Vector4(
+        TPasJSON.getNumber(valueArray.Items[0]),
+        TPasJSON.getNumber(valueArray.Items[1]),
+        TPasJSON.getNumber(valueArray.Items[2]),
+        TPasJSON.getNumber(valueArray.Items[3]));
+    end else if (field is TSFDouble) then begin
+      TSFDouble(field).Value := TPasJSON.getNumber(value);
+    end else if (field is TSFFloat) then begin
+      TSFFloat(field).Value := TPasJSON.getNumber(value);
+    end else if (field is TSFImage) and (key = 'image') and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      TSFImage(field).Value := JSONArrayToImage(valueArray);
+    end else if (field is TSFImage) and (key = 'url') and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      raise Exception.Create('Image URLs not handled');
+    end else if (field is TSFInt32) then begin
+      TSFInt32(field).Value := TPasJSON.getInt64(value);
+    end else if (field is TSFMatrix3d) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      if valueArray.Count < 9 then
+        raise Exception.Create('Matrix array must have 9 elements');
+      NewMatrix3dValue := TMatrix3Double.Identity;
+      NewMatrix3dValue.Data[0][0] := TPasJSON.getNumber(valueArray.Items[0]);
+      NewMatrix3dValue.Data[1][0] := TPasJSON.getNumber(valueArray.Items[1]);
+      NewMatrix3dValue.Data[2][0] := TPasJSON.getNumber(valueArray.Items[2]);
+      NewMatrix3dValue.Data[0][1] := TPasJSON.getNumber(valueArray.Items[3]);
+      NewMatrix3dValue.Data[1][1] := TPasJSON.getNumber(valueArray.Items[4]);
+      NewMatrix3dValue.Data[2][1] := TPasJSON.getNumber(valueArray.Items[5]);
+      NewMatrix3dValue.Data[0][2] := TPasJSON.getNumber(valueArray.Items[6]);
+      NewMatrix3dValue.Data[1][2] := TPasJSON.getNumber(valueArray.Items[7]);
+      NewMatrix3dValue.Data[2][2] := TPasJSON.getNumber(valueArray.Items[8]);
+      TSFMatrix3d(field).Value := NewMatrix3dValue;
+    end else if (field is TSFMatrix3f) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      if valueArray.Count < 9 then
+        raise Exception.Create('Matrix array must have 9 elements');
+      NewMatrix3fValue := TMatrix3.Identity;
+      NewMatrix3fValue.Data[0][0] := TPasJSON.getNumber(valueArray.Items[0]);
+      NewMatrix3fValue.Data[1][0] := TPasJSON.getNumber(valueArray.Items[1]);
+      NewMatrix3fValue.Data[2][0] := TPasJSON.getNumber(valueArray.Items[2]);
+      NewMatrix3fValue.Data[0][1] := TPasJSON.getNumber(valueArray.Items[3]);
+      NewMatrix3fValue.Data[1][1] := TPasJSON.getNumber(valueArray.Items[4]);
+      NewMatrix3fValue.Data[2][1] := TPasJSON.getNumber(valueArray.Items[5]);
+      NewMatrix3fValue.Data[0][2] := TPasJSON.getNumber(valueArray.Items[6]);
+      NewMatrix3fValue.Data[1][2] := TPasJSON.getNumber(valueArray.Items[7]);
+      NewMatrix3fValue.Data[2][2] := TPasJSON.getNumber(valueArray.Items[8]);
+      TSFMatrix3f(field).Value := NewMatrix3fValue;
+    end else if (field is TSFMatrix4d) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      if valueArray.Count < 16 then
+        raise Exception.Create('Matrix array must have 16 elements');
+  
+      {NewMatrix4dValue: TMatrix4;}
+      NewMatrix4dValue := TMatrix4Double.Identity;
+      NewMatrix4dValue.Data[0][0] := TPasJSON.getNumber(valueArray.Items[0]);
+      NewMatrix4dValue.Data[1][0] := TPasJSON.getNumber(valueArray.Items[1]);
+      NewMatrix4dValue.Data[2][0] := TPasJSON.getNumber(valueArray.Items[2]);
+      NewMatrix4dValue.Data[3][0] := TPasJSON.getNumber(valueArray.Items[3]);
+      NewMatrix4dValue.Data[0][1] := TPasJSON.getNumber(valueArray.Items[4]);
+      NewMatrix4dValue.Data[1][1] := TPasJSON.getNumber(valueArray.Items[5]);
+      NewMatrix4dValue.Data[2][1] := TPasJSON.getNumber(valueArray.Items[6]);
+      NewMatrix4dValue.Data[3][1] := TPasJSON.getNumber(valueArray.Items[7]);
+      NewMatrix4dValue.Data[0][2] := TPasJSON.getNumber(valueArray.Items[8]);
+      NewMatrix4dValue.Data[1][2] := TPasJSON.getNumber(valueArray.Items[9]);
+      NewMatrix4dValue.Data[2][2] := TPasJSON.getNumber(valueArray.Items[10]);
+      NewMatrix4dValue.Data[3][2] := TPasJSON.getNumber(valueArray.Items[11]);
+      NewMatrix4dValue.Data[0][3] := TPasJSON.getNumber(valueArray.Items[12]);
+      NewMatrix4dValue.Data[1][3] := TPasJSON.getNumber(valueArray.Items[13]);
+      NewMatrix4dValue.Data[2][3] := TPasJSON.getNumber(valueArray.Items[14]);
+      NewMatrix4dValue.Data[3][3] := TPasJSON.getNumber(valueArray.Items[15]);
+      TSFMatrix4d(field).Value := NewMatrix4dValue;
+    end else if (field is TSFMatrix4f) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      if valueArray.Count < 16 then
+        raise Exception.Create('Matrix array must have 16 elements');
+      NewMatrix4fValue := TMatrix4.Identity;
+      NewMatrix4fValue.Data[0][0] := TPasJSON.getNumber(valueArray.Items[0]);
+      NewMatrix4fValue.Data[1][0] := TPasJSON.getNumber(valueArray.Items[1]);
+      NewMatrix4fValue.Data[2][0] := TPasJSON.getNumber(valueArray.Items[2]);
+      NewMatrix4fValue.Data[3][0] := TPasJSON.getNumber(valueArray.Items[3]);
+      NewMatrix4fValue.Data[0][1] := TPasJSON.getNumber(valueArray.Items[4]);
+      NewMatrix4fValue.Data[1][1] := TPasJSON.getNumber(valueArray.Items[5]);
+      NewMatrix4fValue.Data[2][1] := TPasJSON.getNumber(valueArray.Items[6]);
+      NewMatrix4fValue.Data[3][1] := TPasJSON.getNumber(valueArray.Items[7]);
+      NewMatrix4fValue.Data[0][2] := TPasJSON.getNumber(valueArray.Items[8]);
+      NewMatrix4fValue.Data[1][2] := TPasJSON.getNumber(valueArray.Items[9]);
+      NewMatrix4fValue.Data[2][2] := TPasJSON.getNumber(valueArray.Items[10]);
+      NewMatrix4fValue.Data[3][2] := TPasJSON.getNumber(valueArray.Items[11]);
+      NewMatrix4fValue.Data[0][3] := TPasJSON.getNumber(valueArray.Items[12]);
+      NewMatrix4fValue.Data[1][3] := TPasJSON.getNumber(valueArray.Items[13]);
+      NewMatrix4fValue.Data[2][3] := TPasJSON.getNumber(valueArray.Items[14]);
+      NewMatrix4fValue.Data[3][3] := TPasJSON.getNumber(valueArray.Items[15]);
+      TSFMatrix4f(field).Value := NewMatrix4fValue;
+    { else if field is TSFNode then
+      begin
+	    TSFNode(field).Value := value;
+      end }
+    end else if (field is TSFRotation) and (value is TPasJSONItemArray) then begin
+      TSFRotation(field).Value := Vector4(
+        TPasJSON.getNumber(valueArray.Items[0]),
+        TPasJSON.getNumber(valueArray.Items[1]),
+        TPasJSON.getNumber(valueArray.Items[2]),
+        TPasJSON.getNumber(valueArray.Items[3]));
+    end
+    else if (field is TSFString) then begin TSFString(field).Value := TPasJSON.getString(value);
+    end
+    else if (field is TSFTime) then begin TSFTime(field).Value := TPasJSON.getNumber(value);
+    end else if (field is TSFVec2d) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      TSFVec2d(field).Value := Vector2Double(
+        TPasJSON.getNumber(valueArray.Items[0]),
+        TPasJSON.getNumber(valueArray.Items[1]));
+    end else if (field is TSFVec2f) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+	    TSFVec2f(field).Value := Vector2(
+        TPasJSON.getNumber(valueArray.Items[0]),
+        TPasJSON.getNumber(valueArray.Items[1]));
+    end else if (field is TSFVec3d) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      TSFVec3d(field).Value :=Vector3Double(
+        TPasJSON.getNumber(valueArray.Items[0]),
+        TPasJSON.getNumber(valueArray.Items[1]),
+        TPasJSON.getNumber(valueArray.Items[2]));
+    end else if (field is TSFVec3f) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      TSFVec3f(field).Value := Vector3(
+        TPasJSON.getNumber(valueArray.Items[0]),
+        TPasJSON.getNumber(valueArray.Items[1]),
+        TPasJSON.getNumber(valueArray.Items[2]));
+    end else if (field is TSFVec4d) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      TSFVec4d(field).Value := Vector4Double(
+        TPasJSON.getNumber(valueArray.Items[0]),
+        TPasJSON.getNumber(valueArray.Items[1]),
+        TPasJSON.getNumber(valueArray.Items[2]),
+        TPasJSON.getNumber(valueArray.Items[3]));
+    end else if (field is TSFVec4f) and (value is TPasJSONItemArray) then begin
+      valueArray := TPasJSONItemArray(value);
+      TSFVec4f(field).Value := Vector4(
+        TPasJSON.getNumber(valueArray.Items[0]),
+        TPasJSON.getNumber(valueArray.Items[1]),
+        TPasJSON.getNumber(valueArray.Items[2]),
+        TPasJSON.getNumber(valueArray.Items[3]));
+    end;
+end;
+
+procedure TX3DJSONLDX3DNode.ElementSetAttribute(element: TX3DNode; const key: String; const value: String) overload;
 var
   fieldValue: TX3DNode;
+  keyCopy: String;
 begin
-  if (element is  TProtoInstanceNode) and (key <> 'DEF') and (key <> 'name') then
+  keyCopy := key;
+  if (Length(keyCopy) > 0) and ((keyCopy[1] = '-') or (keyCopy[1] = '@')) then
   begin
-    fieldValue := NodesManager.X3DTypeToClass('fieldValue', TX3DVersion).Create;
-    SetField(fieldValue, 'name', key);
+    keyCopy := Copy(keyCopy, 2, Length(keyCopy)-1);
+    CastleLog.writeLnLog('key is', keyCopy);
+  end;
+  if (element is  TX3DPrototypeNode) and (keyCopy <> 'DEF') and (keyCopy <> 'name') then
+  begin
+    fieldValue := NodesManager.X3DTypeToClass('fieldValue', X3DVersion).Create;
+    SetField(fieldValue, 'name', keyCopy);
     SetField(fieldValue, 'value', value);
-    TProtoInstanceNode(element).Add(fieldValue);
+    AddChild(element, TAbstractChildNode(fieldValue));
   end
-  else if key = 'SON schema' then
+  else if keyCopy = 'JSON schema' then
   begin
     // JSON Schema - ignore
   end
-  else if key = 'ncoding' then
+  else if keyCopy = 'encoding' then
   begin
     // encoding, UTF-8 - ignore
   end
   else
   begin
-    SetField(fieldValue, key, value);
+    SetField(element, keyCopy, value);
   end;
 end;
 
-function TX3DJSONLDX3DNode.CreateElement(rootNode: TX3DRootNode; const key: String; 
-  const containerField: String; obj: TPasJSONItemObject): TX3DNode;
+function TX3DJSONLDX3DNode.CreateElement(const key: String): TX3DNode;
 var
-  child: TX3DNode;
-  name, DEF: String;
+  clz: TX3DNodeClass;
 begin
-  child := NodesManager.X3DTypeToClass(key, TX3DVersion).Create;
-  
-  if (Length(containerField) > 0) and (containerField <> '') and (
-    ((containerField = 'geometry') and (key = 'IndexedFaceSet')) or
-    ((containerField = 'geometry') and (key = 'Text')) or
-    ((containerField = 'geometry') and (key = 'IndexedTriangleSet')) or
-    ((containerField = 'geometry') and (key = 'Sphere')) or
-    ((containerField = 'geometry') and (key = 'Cylinder')) or
-    ((containerField = 'geometry') and (key = 'Cone')) or
-    ((containerField = 'geometry') and (key = 'LineSet')) or
-    ((containerField = 'geometry') and (key = 'IndexedLineSet')) or
-    ((containerField = 'geometry') and (key = 'Box')) or
-    ((containerField = 'geometry') and (key = 'Extrusion')) or
-    ((containerField = 'geometry') and (key = 'GeoElevationGrid')) or
-    ((containerField = 'shape') and (key = 'Shape')) or
-    ((containerField = 'skin') and (key = 'Shape')) or
-    (EndsText('exture', containerField) and (key = 'ImageTexture')) or
-    (key = 'HAnimSegment') or
-    (key = 'HAnimSite') or
-    (key = 'HAnimMotion') or
-    ((containerField = 'skinCoord') and (key = 'Coordinate')) or
-    ((containerField = 'skin') and (key = 'IndexedFaceSet')) or
-    (((containerField = 'skinBindingCoords') or (containerField = 'skinCoord')) and (key = 'Coordinate')) or
-    (((containerField = 'normal') or (containerField = 'skinBindingNormals') or (containerField = 'skinNormal')) and (key = 'Normal')) or
-    (((containerField = 'skeleton') or (containerField = 'children') or (containerField = 'joints')) and (key = 'HAnimJoint'))
-  ) then
-  begin
-    SetField(child, 'conntainerField', containerField);
+  CastleLog.WriteLnLog('DEBUG', 'Creating Element for '+key);
+  clz := NodesManager.X3DTypeToClass(key, X3DVersion);
+  if Assigned(clz) then begin
+    Result := clz.Create;
+  end else begin
+    CastleLog.WriteLnLog('ERROR', 'Could not find Element for');
+    Result := nil;
   end;
-  Result := child;
 end;
 
 procedure TX3DJSONLDX3DNode.CDATACreateFunction(rootNode: TX3DRootNode; element: TX3DNode; 
@@ -562,11 +542,17 @@ begin
     sb := sb + TPasJSON.getString(value.Items[i]);
   end;
   
-  { TODO element.CDATAField := sb; }
+  { element.CDATAField.Value := sb; }
+end;
+
+procedure TX3DJSONLDX3DNode.CreateComment(element: TX3DNode; const arr: String);
+begin
+  { TODO  I don'g tknow how to implement this! }
+  { AddChild(element, TX3DCommentNode.Create(str)); }
 end;
 
 procedure TX3DJSONLDX3DNode.ConvertProperty(rootNode: TX3DRootNode; const key: String; 
-  obj: TPasJSONItemObject; element: TX3DNode; const containerField: String);
+  obj: TPasJSONItemObject; element: TX3DNode);
 var
   jsonValue: TPasJSONItem;
   arr: TPasJSONItemArray;
@@ -577,60 +563,30 @@ begin
   jsonValue := obj.Properties[key];
   if not Assigned(jsonValue) then Exit;
   
-  if jsonValue is TPasJSONItemObject then
-  begin
-    if key = '@sourceCode' then
+  if jsonValue is TPasJSONItemObject then begin
+    if (key = '@sourceCode') or (key = '#sourceCode') then begin
       CDATACreateFunction(rootNode, element, TPasJSONItemArray(jsonValue))
-    else if (Length(key) > 0) and (key[1] = '@') then
-      ConvertJsonValue(rootNode, jsonValue, key, element, containerField)
-    else if (Length(key) > 0) and (key[1] = '-') then
-      ConvertJsonValue(rootNode, jsonValue, key, element, Copy(key, 2, Length(key)-1))
-    else if key = '#comment' then
-    begin
-      if jsonValue is TPasJSONItemArray then
-      begin
+    end else if (Length(key) > 0) and (key[1] = '@') then begin
+      ConvertJsonValue(rootNode, jsonValue, key, element)
+    end else if (Length(key) > 0) and (key[1] = '-') then begin
+      ConvertJsonValue(rootNode, jsonValue, key, element)
+    end else if key = '#comment' then begin
+      if jsonValue is TPasJSONItemArray then begin
         arr := TPasJSONItemArray(jsonValue);
-        for i := 0 to arr.Count - 1 do
-        begin
-		{ comment := rootNode.CreateComment(CommentStringToXML(TPasJSON.getString(arr.Items[i])));
-          element.Add(comment); }
+        for i := 0 to arr.Count - 1 do begin
+          CreateComment(element, TPasJSON.getString(arr.Items[i]));
         end;
-      end
-      else
-      begin
-	      { comment := rootNode.CreateComment(CommentStringToXML(TPasJSON.getString(jsonValue)));D
-        element.Add(comment);j }
+      end else begin
+        CreateComment(element, TPasJSON.getString(jsonValue));
       end;
-    end
-    else if key = '#sourceCode' then
-      CDATACreateFunction(rootNode, element, TPasJSONItemArray(jsonValue))
-    else if (key = 'connect') or (key = 'fieldValue') or (key = 'field') or 
-            (key = 'meta') or (key = 'component') or (key = 'unit') then
-    begin
+    end else if (key = 'connect') or (key = 'fieldValue') or (key = 'field') or 
+            (key = 'meta') or (key = 'component') or (key = 'unit') then begin
       arr := TPasJSONItemArray(jsonValue);
-      ConvertJsonArray(rootNode, arr, key, element, containerField);
-    end
-    else
-      ConvertJsonValue(rootNode, jsonValue, key, element, containerField);
+      ConvertJsonArray(rootNode, arr, key, element);
+    end else begin
+      ConvertJsonValue(rootNode, jsonValue, key, element);
+    end;
   end;
-end;
-
-function TX3DJSONLDX3DNode.CommentStringToXML(const str: String): String;
-var
-  x, y: String;
-begin
-  y := str;
-  Result := y;
-  
-  repeat
-    x := Result;
-    Result := StringReplace(x, '\"', '"', [rfReplaceAll]);
-  until x = Result;
-  
-  repeat
-    x := Result;
-    Result := StringReplace(x, '""', '" "', [rfReplaceAll]);
-  until x = Result;
 end;
 
 function TX3DJSONLDX3DNode.NavigationInfoTypeToXML(const str: String): String;
@@ -644,14 +600,13 @@ begin
 end;
 
 procedure TX3DJSONLDX3DNode.ConvertJsonObject(rootNode: TX3DRootNode; obj: TPasJSONItemObject; 
-  const parentkey: String; element: TX3DNode; const containerField: String);
+  const parentkey: String; element: TX3DNode);
 var
   kii: Boolean;
   child: TX3DNode;
   i: Integer;
   key: String;
   jsonValue: TPasJSONItem;
-  tempContainerField: String;
 begin
   if not Assigned(obj) then Exit;
   
@@ -667,17 +622,7 @@ begin
     child := element
   else
   begin
-    tempContainerField := containerField;
-    
-    if ((tempContainerField = '') or (tempContainerField = 'children')) and 
-       (parentkey = 'HAnimJoint') and (element.X3DType = 'HAnimHumanoid') then
-      tempContainerField := 'joints';
-      
-    if ((tempContainerField = '') or (tempContainerField = 'coord')) and 
-       (parentkey = 'Coordinate') and (element.X3DType = 'HAnimHumanoid') then
-      tempContainerField := 'skinCoord';
-      
-    child := CreateElement(rootNode, parentkey, tempContainerField, obj);
+    child := CreateElement(parentkey);
   end;
   
   for i := 0 to obj.Count - 1 do
@@ -687,133 +632,106 @@ begin
     
     if jsonValue is TPasJSONItemObject then
     begin
-      if (key = '@type') and (parentkey = 'NavigationInfo') then
-        ElementSetAttribute(child, Copy(key, 2, Length(key)-1), 
-          NavigationInfoTypeToXML(TPasJSON.getString(jsonValue)), rootNode)
-      else if (Length(key) > 0) and (key[1] = '@') then
-        ConvertProperty(rootNode, key, TPasJSONItemObject(jsonValue), child, containerField)
-      else if (Length(key) > 0) and (key[1] = '-') then
-        ConvertJsonObject(rootNode, TPasJSONItemObject(jsonValue), key, child, Copy(key, 2, Length(key)-1))
-      else
-        ConvertJsonObject(rootNode, TPasJSONItemObject(jsonValue), key, child, containerField);
-    end
-    else if jsonValue is TPasJSONItemArray then
-      ConvertJsonArray(rootNode, TPasJSONItemArray(jsonValue), key, child, containerField)
-    else if jsonValue is TPasJSONItemNumber then
-      ElementSetAttribute(child, Copy(key, 2, Length(key)-1), TPasJSON.GetString(jsonValue), rootNode)
-    else if jsonValue is TPasJSONItemString then
-    begin
-      if key = '#comment' then
-      begin
-	      { comment := rootNode.CreateComment(CommentStringToXML(TPasJSON.GetString(jsonValue)));
-        child.Add(comment); }
-      end
-      else if (key = '@type') and (parentkey = 'NavigationInfo') then
-        ElementSetAttribute(child, Copy(key, 2, Length(key)-1), 
-          NavigationInfoTypeToXML(TPasJSON.GetString(jsonValue)), rootNode)
-      else
-        ElementSetAttribute(child, Copy(key, 2, Length(key)-1), TPasJSON.GetString(jsonValue), rootNode);
-    end
-    else if (jsonValue is TPasJSONItemBoolean) or (jsonValue is TPasJSONItemNull) then
-      ElementSetAttribute(child, Copy(key, 2, Length(key)-1), TPasJSON.GetString(jsonValue), rootNode);
+      if (key = '@type') and (parentkey = 'NavigationInfo') then begin
+        ElementSetAttribute(child, key, NavigationInfoTypeToXML(TPasJSON.getString(jsonValue)))
+      end else if (Length(key) > 0) and (key[1] = '@') then begin
+        ConvertProperty(rootNode, key, TPasJSONItemObject(jsonValue), child)
+      end else if (Length(key) > 0) and (key[1] = '-') then begin
+        ConvertJsonObject(rootNode, TPasJSONItemObject(jsonValue), key, child)
+      end else begin
+        ConvertJsonObject(rootNode, TPasJSONItemObject(jsonValue), key, child);
+      end;
+    end else if jsonValue is TPasJSONItemArray then begin
+      ConvertJsonArray(rootNode, TPasJSONItemArray(jsonValue), key, child)
+    end else if jsonValue is TPasJSONItemNumber then begin
+      ElementSetAttribute(child, key, TPasJSON.GetString(jsonValue))
+    end else if jsonValue is TPasJSONItemString then begin
+      if key = '#comment' then begin
+        CreateComment(child, TPasJSON.GetString(jsonValue));
+      end else if (key = '@type') and (parentkey = 'NavigationInfo') then begin
+        ElementSetAttribute(child, key, NavigationInfoTypeToXML(TPasJSON.GetString(jsonValue)));
+      end else begin
+        ElementSetAttribute(child, key, TPasJSON.GetString(jsonValue));
+      end;
+    end else if (jsonValue is TPasJSONItemBoolean) or (jsonValue is TPasJSONItemNull) then begin
+      ElementSetAttribute(child, key, TPasJSON.GetString(jsonValue));
+    end;
   end;
   
-  if not kii and not ((Length(parentkey) > 0) and (parentkey[1] = '-')) then
-  begin
-    AddChild(element, TAbstractChildNode(child));
+  if not kii and not ((Length(parentkey) > 0) and (parentkey[1] = '-')) then begin
+    if (child is TAbstractChildNode) then begin
+      AddChild(element, TAbstractChildNode(child));
+    end else begin
+      CastleLog.WriteLnLog('ERROR cannot cast');
+    end;
   end;
 end;
 
-procedure TX3DJSONLDX3DNode.AddChild(parentNode: TX3DNode; childNode: TAbstractChildNode); 
+procedure TX3DJSONLDX3DNode.AddChild(parentNode: TX3DNode; childNode: TX3DNode); 
+var
+  AShape: TShapeNode;
+  AGeometry: TAbstractGeometryNode;
 begin
-  if parentNOde is TAbstractGroupingNode then
-  begin
-    TAbstractGroupingNode(parentNode).AddChildren(childNode);
-  end
-  else
-  begin
-    WriteLnLog('Warning: Tried to add a child to a non-grouping node of type %s', [parentNOde.ClassName]);
+  if (parentNode is TAbstractGroupingNode) and (childNode is TAbstractChildNode) then begin
+    TAbstractGroupingNode(parentNode).AddChildren(TAbstractChildNode(childNode));
+  end else if (parentNode is TX3dRootNode) and (childNode is TAbstractChildNode) then begin
+    TX3DRootNode(parentNode).AddChildren(TAbstractChildNode(childNode));
+  end else if (parentNode is TX3DRootNode) and (childNode is TAbstractGeometryNode) then begin
+    AShape := TShapeNode.Create;
+    TAbstractGeometryNode(childNode).CreateWithShape(AShape);
+    TX3DRootNode(parentNode).AddChildren(AShape);
+  end else begin
+    WriteLnLog('Warning: Tried to add a child node of type %s to a parent node of type %s', [childNode.ClassName, parentNode.ClassName]);
   end;
 end;
 
 procedure TX3DJSONLDX3DNode.ConvertJsonArray(rootNode: TX3DRootNode; arr: TPasJSONItemArray; 
-  const parentkey: String; element: TX3DNode; const containerField: String);
+  const parentkey: String; element: TX3DNode);
 var
-  arrayOfStrings: Boolean;
-  localArray: TStringList;
   arraysize, i: Integer;
   jsonValue: TPasJSONItem;
-  kii: Boolean;
 begin
   if not Assigned(arr) then Exit;
+  arraysize := arr.Count;
   
-  arrayOfStrings := False;
-  localArray := TStringList.Create;
-  try
-    arraysize := arr.Count;
-    
-    if parentkey = 'meta' then
+  if parentkey = 'meta' then
+  begin
+    if (x3dTidy) then
     begin
-      if (x3dTidy) then
-      begin
-        arraysize := arr.Count - 2;
-      end
-      else
-      begin
-        arraysize := arr.Count - 3;
-      end
-    end;
-    
-    for i := 0 to arraysize - 1 do
+      arraysize := arr.Count - 2;
+    end
+    else
     begin
-      jsonValue := arr.Items[i];
-      
-      if jsonValue is TPasJSONItemNumber then
-        localArray.Add(TPasJSON.GetString(jsonValue))
-      else if jsonValue is TPasJSONItemString then
-      begin
-        localArray.Add(TPasJSON.GetString(jsonValue));
-        arrayOfStrings := True;
-      end
-      else if (jsonValue is TPasJSONItemBoolean) or (jsonValue is TPasJSONItemNull) then
-        localArray.Add(TPasJSON.GetString(jsonValue))
-      else if jsonValue is TPasJSONItemObject then
-      begin
-        try
-          StrToInt(IntToStr(i));
-          kii := True;
-        except
-          kii := False;
-        end;
-        
-        if not ((Length(parentkey) > 0) and (parentkey[1] = '-')) and kii then
-          ConvertJsonValue(rootNode, jsonValue, parentkey, element, containerField)
-        else
-          ConvertJsonValue(rootNode, jsonValue, IntToStr(i), element, Copy(parentkey, 2, Length(parentkey)-1));
-      end
-      else if jsonValue is TPasJSONItemArray then
-        ConvertJsonValue(rootNode, jsonValue, IntToStr(i), element, containerField);
-    end;
-    
-    if parentkey = '@sourceCode' then
-      CDATACreateFunction(rootNode, element, arr)
-    else if (Length(parentkey) > 0) and (parentkey[1] = '@') then
-      ElementSetAttribute(element, Copy(parentkey, 2, Length(parentkey)-1), localArray, rootNode)
-    else if parentkey = '#sourceCode' then
-      CDATACreateFunction(rootNode, element, arr);
-      
-  finally
-    localArray.Free;
+      arraysize := arr.Count - 3;
+    end
+  end;
+  
+  for i := 0 to arraysize - 1 do
+  begin
+    jsonValue := arr.Items[i];
+    ConvertJsonValue(rootNode, jsonValue, parentkey, element)
+  end;
+  
+  if (parentkey = '@sourceCode') or (parentkey = '#sourceCode') then
+  begin
+    CDATACreateFunction(rootNode, element, arr);
+  end
+  else if (Length(parentkey) > 0) and (parentkey[1] = '@') then
+  begin
+    ElementSetAttribute(element, parentkey, arr);
   end;
 end;
 
 function TX3DJSONLDX3DNode.ConvertJsonValue(rootNode: TX3DRootNode; value: TPasJSONItem; 
-  const parentkey: String; element: TX3DNode; const containerField: String): TX3DNode;
+  const parentkey: String; element: TX3DNode): TX3DNode;
 begin
-  if value is TPasJSONItemArray then
-    ConvertJsonArray(rootNode, TPasJSONItemArray(value), parentkey, element, containerField)
-  else
-    ConvertJsonObject(rootNode, TPasJSONItemObject(value), parentkey, element, containerField);
+  if value is TPasJSONItemArray then begin
+    ConvertJsonArray(rootNode, TPasJSONItemArray(value), parentkey, element)
+  end else if value is TPasJSONItemObject then begin
+    ConvertJsonObject(rootNode, TPasJSONItemObject(value), parentkey, element);
+  end else begin
+      CastleLog.WriteLnLog('Could not do children of : '+ parentkey + ' value is '+TPasJSON.GetString(value));
+  end;
   
   Result := element;
 end;
@@ -828,47 +746,43 @@ begin
   
   Result := TX3DRootNode.Create;
   
-  element := CreateElement(Result, 'X3D', '', nil);
-  ElementSetAttribute(element, 'xmlns:xsd', 'http://www.w3.org/2001/XMLSchema-instance', Result);
+  element := CreateElement('X3D');
+  ElementSetAttribute(element, 'xmlns:xsd', 'http://www.w3.org/2001/XMLSchema-instance');
   
   x3dObj := TPasJSONItemObject(jsobj.Properties['X3D']);
   if Assigned(x3dObj) then
-    ConvertJsonObject(Result, x3dObj, '-', element, '');
+    ConvertJsonObject(Result, x3dObj, '-', element);
   
-  AddChild(Result, TAbstractChildNode(element));
+  AddChild(Result, element);
 end;
 
-function TX3DJSONLDX3DNode.ReadJsonFile(const filename: String): TPasJSONItem;
+function LoadX3DJsonInternal(const Stream: TStream; const BaseUrl: String): TX3DRootNode; overload;
 var
-  fileStream: TFileStream;
-  parser: TJSONParser;
+    jsobj: TPasJSONItem;
 begin
-  fileStream := TFileStream.Create(filename, fmOpenRead);
   try
-      Result := TPasJSON.Parse(fileStream);
+  { fileStream := TFileStream.Create(filename, fmOpenRead); }
+    jsobj := TPasJSON.Parse(Stream);
+    if jsobj is TPasJsonItemObject then
+    begin
+      Result := TX3DJSONLDX3DNode.localJSON.LoadJsonIntoDocument(TPasJsonItemObject(jsobj), False);
+    end;
   finally
-    fileStream.Free;
+    jsobj.Free;
   end;
 end;
 
-function TX3DJSONLDX3DNode.GetX3DVersion: TX3DVersion;
-begin
-  Result := TX3DVersion;
-end;
-
-function TX3DJSONLDX3DNode.SerializeDOM(rootNode: TX3DRootNode): String;
+procedure TX3DJSONLDX3DNode.RegisterJSON();
 var
-  stringStream: TStringStream;
-  FileName: String;
+  ModelFormat: TModelFormat;
 begin
-  stringStream := TStringStream.Create('');
-  try
-    FileName := 'outputScene.x3d';
-    rootNode.SaveToXML;
-    Result := stringStream.DataString;
-  finally
-    stringStream.Free;
-  end;
+  ModelFormat := TModelFormat.Create;
+  ModelFormat.OnLoad := {$ifdef FPC}@{$endif} LoadX3DJsonInternal;
+  ModelFormat.MimeTypes.Add('model/x3d+json');
+  ModelFormat.FileFilterName := 'X3D JSON (*.x3dj)';
+  ModelFormat.Extensions.Add('.x3dj');
+  RegisterModelFormat(ModelFormat);
 end;
 
+begin
 end.

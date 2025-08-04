@@ -25,11 +25,7 @@ uses
 
 var
   Window: TCastleWindow;
-  loader: TX3DJSONLDX3DNode;
-  jsonitem: TPasJSONItem;  // top level item is a JSON object, below
-  jsonobj: TPasJSONItemObject;
-  document: TDOMDocument;
-  xmlOutput: String;
+  { loader: TX3DJSONLDX3DNode; }
   Scene: TCastleScene;
 
 
@@ -45,28 +41,13 @@ begin
   ViewX3DJSONLD := TViewX3DJSONLD.Create(Application);
   {$endregion 'Castle View Creation'}
   Scene := TCastleScene.Create(Application);
+  ViewX3DJSONLD.setScene(Scene);
 
   Window.Container.View := ViewX3DJSONLD;
   Window.Controls.InsertFront(ViewX3DJSONLD);
-  // Java
-  loader := TX3DJSONLDX3DNode.Create;
-  try
-    jsonitem := loader.ReadJsonFile('C:\Users\jcarl\X3DJSONLD\src\main\data\ArchHalf.json');
-    if jsonitem is TPasJSONItemObject then
-      begin
-        jsonobj := TPasJSONItemObject(jsonitem);
-        document := loader.LoadJsonIntoDocument(jsonobj, loader./gerFieX3DVersion(jsonobj), False);
-        xmlOutput := loader.SerializeDOM(loader.GetX3DVersion(jsonobj), document);
-        WriteLnLog('DEBUG', xmlOutput);
-  	ViewX3DJSONLD.SetXmlOutput(xmlOutput, Scene);
-      end
-    else
-      begin
-        WriteLnLog('ERROR', 'Not a JSON Object; an X3D JSON Document is a JSON Object.');
-      end;
-  finally
-    loader.Free;
-  end;
+
+  Scene.Load('file:/C:/Users/jcarl/X3DJSONLD/src/main/data/rubikPly.x3dj');
+  SaveNode(Scene.RootNode, 'output.x3d');
 end;
 
 

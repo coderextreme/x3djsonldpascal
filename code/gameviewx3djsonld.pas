@@ -11,7 +11,8 @@ uses Classes, CastleWindow, CastleDownload,
   CastleVectors, CastleComponentSerialize,
   CastleUIControls, CastleControls, CastleKeysMouse,
   X3DNodes, SysUtils, CastleScene, X3DLoad, CastleLog,
-  CastleUriUtils, CastleStringUtils;
+  CastleUriUtils, CastleStringUtils,
+  X3DJSONLDX3DNode;
 
 type
   { Main view, where most of the application logic takes place. }
@@ -25,12 +26,14 @@ type
     procedure Start; override;
     procedure Update(const SecondsPassed: Single; var HandleInput: Boolean); override;
     function Press(const Event: TInputPressRelease): Boolean; override;
-    procedure SetXmlOutput(xmlOutput: String;loadScene: TCastleScene);
+    procedure SetUpJSON();
+    procedure SetScene(scene: TCastleScene);
   end;
 
 var
   ViewX3DJSONLD: TViewX3DJSONLD;
   Scene: TCastleScene;
+  loader: TX3DJSONLDX3DNode;
 
 implementation
 
@@ -49,6 +52,7 @@ begin
   begin
     WritelnLog('DEBUG', '- File %d: %s', [I, FileNames[I]]);
     Url := FilenameToUriSafe(FileNames[I]);
+    LoadNode(Url);
     WritelnLog('url is '+ SReadableForm(Url));
     Scene.Load(Url);
   end;
@@ -60,22 +64,18 @@ begin
   inherited Create(AOwner);
   Application.MainWindow.OnDropFiles := @DropJsonFiles;
   DesignUrl := 'castle-data:/gameviewx3djsonld.castle-user-interface';
+  SetUpJSON();
 end;
 
-procedure TViewX3DJSONLD.SetXmlOutput(xmlOutput: String; loadScene: TCastleScene);
-var
-  RootNode: TX3DRootNode;
-  XmlStream: TStringStream;
+procedure TViewX3DJSONLD.SetUpJSON;
 begin
-  Scene := loadScene;
-  XmlStream := TStringStream.Create(xmlOutput, TEncoding.UTF8); // Create a StringStream from your XML string
-  try
-    RootNode := LoadNode(XmlStream, '', 'model/x3d+xml'); //
-    { loadScene.Load(RootNode, true); }
-  finally
-    XmlStream.Free;
-  end;
+  loader := TX3DJSONLDX3DNode.Create;
+  loader.RegisterJSON();
+end;
 
+procedure TViewX3DJSONLD.SetScene(scene: TCastleScene);
+begin
+  Scene := scene;
 end;
 
 procedure TViewX3DJSONLD.Start;
